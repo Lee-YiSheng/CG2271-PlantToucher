@@ -4,6 +4,7 @@
 #include "peripherals.h"
 #include "pin_mux.h"
 
+
 // 全局变量定义
 QueueHandle_t xSensorQueue;
 QueueHandle_t xGPTQueue;
