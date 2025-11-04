@@ -8,6 +8,12 @@ typedef enum {
     MUSIC_ALERT
 } MusicType_t;
 
+typedef struct {
+    MusicType_t buzzer_command;
+    uint8_t led_intensity;
+    // uint8_t alert_level; // This was in your doc, add it if you need it
+} ActuatorCommand_t;
+
 
 void Actuators_Init(void);
 void Set_LED_Intensity(uint8_t intensity_0_255);

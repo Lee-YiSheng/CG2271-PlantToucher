@@ -9,16 +9,12 @@
 #include "task.h"
 #include "semphr.h"
 #include "queue.h"
+#include "sensor_driver.h"
 
 #define WATER_LEVEL_PIN       0  // PTC0
 #define PHOTORESISTOR_PIN     22 // PTE22
 
-typedef struct {
-    uint32_t water_level;      // 0-100%
-    uint32_t light_intensity;  // 0-1023 (ADC value)
-    float temperature;         // Celsius
-    float humidity;            // Percentage
-} SensorData_t;
+
 
 static SemaphoreHandle_t xWaterLevelSemaphore;
 SensorData_t sensorData;
@@ -101,24 +97,24 @@ void Sensor_Task(void *pvParameters) {
     }
 }
 
-int main(void) {
-    BOARD_InitBootPins();
-    BOARD_InitBootClocks();
-    BOARD_InitBootPeripherals();
-    BOARD_InitDebugConsole();
-
-    xWaterLevelSemaphore = xSemaphoreCreateBinary();
-    sensorData.water_level = 0;
-    sensorData.light_intensity = 0;
-    sensorData.temperature = 0;
-    sensorData. humidity = 0;
-
-
-    initSensors();
-    xTaskCreate(Sensor_Task, "SensorTask", configMINIMAL_STACK_SIZE + 256, NULL, 0, NULL);
-    vTaskStartScheduler();
-
-    while (1);
-
-    return 0;
-}
+//int main(void) {
+//    BOARD_InitBootPins();
+//    BOARD_InitBootClocks();
+//    BOARD_InitBootPeripherals();
+//    BOARD_InitDebugConsole();
+//
+//    xWaterLevelSemaphore = xSemaphoreCreateBinary();
+//    sensorData.water_level = 0;
+//    sensorData.light_intensity = 0;
+//    sensorData.temperature = 0;
+//    sensorData. humidity = 0;
+//
+//
+//    initSensors();
+//    xTaskCreate(Sensor_Task, "SensorTask", configMINIMAL_STACK_SIZE + 256, NULL, 0, NULL);
+//    vTaskStartScheduler();
+//
+//    while (1);
+//
+//    return 0;
+//}
