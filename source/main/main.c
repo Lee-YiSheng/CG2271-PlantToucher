@@ -6,10 +6,10 @@
 
 
 // 全局变量定义
-QueueHandle_t xSensorQueue;
-QueueHandle_t xGPTQueue;
-SemaphoreHandle_t xUARTMutex;
-SemaphoreHandle_t xUltrasonicSemaphore;
+QueueHandle_t xSensorQueue = NULL;
+QueueHandle_t xActuatorQueue = NULL;
+SemaphoreHandle_t xUARTMutex = NULL;
+SemaphoreHandle_t xWaterLevelSemaphore = NULL;
 
 // 任务声明
 void Sensor_Task(void *pvParameters);
