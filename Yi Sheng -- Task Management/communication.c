@@ -4,7 +4,7 @@
 #include "board.h"          // Board specific definitions
 #include "project_config.h" // For timings, priorities
 #include "rtos_manager.h"   // Access to queues/semaphores/mutex
-#include "sensor_drivers.h"  // For SensorData_t struct
+#include "sensor_driver.h"  // For SensorData_t struct
 #include "fsl_debug_console.h" // For PRINTF
 #include <string.h>         // For strlen, strstr
 #include <stdlib.h>         // For atof

@@ -1,5 +1,5 @@
 // uart_driver.c
-#include "../header files/project_config.h"
+#include "project_config.h"
 
 void Send_To_ESP32(const char *data) {
     // 使用板载配置的UART

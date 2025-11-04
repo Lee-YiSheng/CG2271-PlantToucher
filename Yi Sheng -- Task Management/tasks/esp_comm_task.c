@@ -5,8 +5,8 @@
 #include "semphr.h"
 #include "string.h"
 #include "stdio.h"
-#include "../header files/project_config.h"
-#include "../header files/uart_driver.h"
+#include "project_config.h"
+#include "uart_driver.h"
 
 extern QueueHandle_t xSensorQueue;
 extern QueueHandle_t xGPTQueue;

@@ -1,7 +1,7 @@
 #include "rtos_manager.h"
 #include "project_config.h" // For task stack sizes and priorities
-#include "sensor_drivers.h"  // For SensorData_t struct definition
-#include "actuator_drivers.h"// For ActuatorCommand_t struct definition
+#include "sensor_driver.h"  // For SensorData_t struct definition
+#include "actuator_driver.h"// For ActuatorCommand_t struct definition
 #include "fsl_debug_console.h" // For PRINTF
 
 // --- Global RTOS Handles ---

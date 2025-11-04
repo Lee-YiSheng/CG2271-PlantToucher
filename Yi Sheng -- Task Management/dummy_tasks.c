@@ -1,7 +1,7 @@
 #include "dummy_tasks.h"
 #include "project_config.h"
-#include "sensor_drivers.h"  // For SensorData_t
-#include "actuator_drivers.h"// For ActuatorCommand_t
+#include "sensor_driver.h"  // For SensorData_t
+#include "actuator_driver.h"// For ActuatorCommand_t
 #include "fsl_debug_console.h" // For PRINTF
 #include "queue.h"
 #include "semphr.h"

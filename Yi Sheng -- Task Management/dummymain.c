@@ -51,8 +51,8 @@
 #include "project_config.h"
 #include "rtos_manager.h"   // Include your RTOS setup functions
 #include "communication.h"  // Include UART init and task
-#include "sensor_drivers.h"  // For SensorData_t struct definition (used by queues)
-#include "actuator_drivers.h"// For ActuatorCommand_t struct definition (used by queues)
+#include "sensor_driver.h"  // For SensorData_t struct definition (used by queues)
+#include "actuator_driver.h"// For ActuatorCommand_t struct definition (used by queues)
 #include "dummy_tasks.h"    // Include dummy task declarations for testing
 
 /*-----------------------------------------------------------*/

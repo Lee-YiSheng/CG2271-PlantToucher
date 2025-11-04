@@ -4,7 +4,7 @@
 #include "queue.h"
 #include "board.h"
 #include "FreeRTOS.h"
-#include "../header files/project_config.h"
+#include "project_config.h"
 
 extern QueueHandle_t xGPTQueue;
 
