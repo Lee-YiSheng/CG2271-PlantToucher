@@ -73,7 +73,7 @@ void UART_Init(void) {
 
     // 2. Get default configuration: 115200 baud, 8N1
     LPUART_GetDefaultConfig(&config);
-    config.baudRate_Bps = 115200U;
+    config.baudRate_Bps = 9600U; // Was 115200U
     config.enableTx     = true;
     config.enableRx     = true;
 
