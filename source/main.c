@@ -29,7 +29,7 @@
  */
 
 /**
- * @file    dummymain.c
+ * @file    main.c
  * @brief   Application entry point.
  */
 #include <stdio.h>
