@@ -27,7 +27,7 @@ extern QueueHandle_t xSensorQueue;
 extern QueueHandle_t xActuatorQueue;
 extern SemaphoreHandle_t xUARTMutex;
 extern SemaphoreHandle_t xWaterLevelSemaphore;
-
+extern QueueHandle_t xUARTRxQueue;
 
 /**
  * @brief Initializes the necessary FreeRTOS objects (Queues, Semaphores, Mutexes).
@@ -51,7 +51,7 @@ void RTOS_Objects_Init(void) {
     }
     vQueueAddToRegistry(xActuatorQueue, "ActuatorQueue");
 
-    // 3. Create the mutex to protect UART1 communication
+    // 3. Create the mutex to protect UART2 communication
     xUARTMutex = xSemaphoreCreateMutex();
      if (xUARTMutex == NULL) {
         PRINTF("Error creating UART Mutex!\r\n");
@@ -67,7 +67,16 @@ void RTOS_Objects_Init(void) {
     }
     vQueueAddToRegistry(xWaterLevelSemaphore, "WaterLvlSema");
 
-    PRINTF("RTOS Objects Initialized.\r\n");
+
+    // 5. Create the queue for the UART ISR to send strings to the Recv Task
+        xUARTRxQueue = xQueueCreate(5, sizeof(UARTMessage_t)); // 5 messages, each a UARTMessage_t struct
+         if (xUARTRxQueue == NULL) {
+            PRINTF("Error creating UART Rx Queue!\r\n");
+            while(1);
+        }
+        vQueueAddToRegistry(xUARTRxQueue, "UARTTxQueue");
+
+        PRINTF("RTOS Objects Initialized.\r\n");
 }
 
 
@@ -95,14 +104,23 @@ void RTOS_Tasks_Create(void) {
                          NULL);
     if (status != pdPASS) { PRINTF("Error creating Dummy Actuator Task!\r\n"); }
 
-    // Task 3: ESP32 Communication (YOUR REAL TASK)
-    status = xTaskCreate(ESP32_Communication_Task,
-                         "ESP32Task",
-                         COMM_TASK_STACK_SIZE,
-                         NULL,
-                         COMM_TASK_PRIORITY,
-                         NULL);
-     if (status != pdPASS) { PRINTF("Error creating ESP32 Communication Task!\r\n"); }
+    // Task 3a: ESP32 Send Task
+        status = xTaskCreate(ESP32_Send_Task,
+                             "ESP32Send",
+                             COMM_TASK_STACK_SIZE,
+                             NULL,
+                             COMM_TASK_PRIORITY, // Use the same priority
+                             NULL);
+         if (status != pdPASS) { PRINTF("Error creating ESP32 Send Task!\r\n"); }
+
+        // Task 3b: ESP32 Receive Task
+        status = xTaskCreate(ESP32_Receive_Task,
+                             "ESP32Recv",
+                             COMM_TASK_STACK_SIZE,
+                             NULL,
+                             COMM_TASK_PRIORITY, // Use the same priority
+                             NULL);
+         if (status != pdPASS) { PRINTF("Error creating ESP32 Receive Task!\r\n"); }
 
     // Task 4: DUMMY Plant Logic
     status = xTaskCreate(Dummy_Plant_Logic_Task,

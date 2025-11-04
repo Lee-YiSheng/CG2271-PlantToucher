@@ -2,49 +2,39 @@
 #define COMMUNICATION_H_
 
 #include "FreeRTOS.h"
-#include "semphr.h"
-#include <stdint.h>
+#include "task.h"
+
+// Define the size of the buffer used in the ISR
+// This MUST match RX_BUFFER_SIZE in communication.c
+#define UART_RX_BUFFER_SIZE 64
 
 /**
- * @brief Initializes UART1 peripheral for communication with ESP32.
- *
- * Configures the pins, baud rate (115200), and enables receive interrupts.
- * Creates the semaphore used by the ISR to signal received messages.
+ * @brief Struct to pass a complete UART message from the ISR to the Recv Task.
+ * Inspired by the TMessage struct in your lab example.
+ */
+typedef struct {
+    char buffer[UART_RX_BUFFER_SIZE];
+} UARTMessage_t;
+
+
+// --- Function Prototypes ---
+
+/**
+ * @brief Initializes LPUART1 for communication with the ESP32.
+ * Configures pins PTB16 (RX) and PTB17 (TX).
  */
 void UART_Init(void);
 
 /**
- * @brief FreeRTOS task responsible for communicating with the ESP32.
- *
- * Periodically requests DHT11 data, waits for a response (signaled by ISR),
- * parses the response, and sends the updated sensor data to the SensorQueue.
- * Uses a mutex to protect UART access.
- *
- * @param pvParameters Unused task parameter.
+ * @brief (Task) Periodically sends "GET_DHT\n" to the ESP32.
  */
-void ESP32_Communication_Task(void *pvParameters);
+void ESP32_Send_Task(void *pvParameters);
 
 /**
- * @brief Sends a command string (null-terminated) to the ESP32 via UART1.
- *
- * This function handles acquiring the UART mutex for thread safety.
- * It appends a newline character '\\n' as a command terminator.
- *
- * @param command The null-terminated command string to send.
- * @return pdTRUE if successful, pdFALSE if mutex could not be taken.
+ * @brief (Task) Waits for complete messages from the ISR queue,
+ * parses them, and sends DHT data to the xSensorQueue.
  */
-BaseType_t Send_Command_To_ESP32(const char *command);
+void ESP32_Receive_Task(void *pvParameters);
 
-/**
- * @brief Parses a string (expected JSON format) received from ESP32 for DHT11 data.
- *
- * Example format: {"temp":25.5,"humidity":60.2}
- *
- * @param json_string The null-terminated string received from ESP32.
- * @param temp Pointer to a float where the parsed temperature will be stored.
- * @param humidity Pointer to a float where the parsed humidity will be stored.
- * @return pdTRUE if parsing was successful, pdFALSE otherwise.
- */
-BaseType_t Parse_DHT_Data(const char *json_string, float *temp, float *humidity);
 
 #endif /* COMMUNICATION_H_ */

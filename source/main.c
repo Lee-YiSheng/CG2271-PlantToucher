@@ -63,7 +63,7 @@ QueueHandle_t xSensorQueue = NULL;
 QueueHandle_t xActuatorQueue = NULL;
 SemaphoreHandle_t xUARTMutex = NULL;
 SemaphoreHandle_t xWaterLevelSemaphore = NULL; // Use this name consistently
-
+QueueHandle_t xUARTRxQueue = NULL; // <-- ADD THIS LINE
 /*-----------------------------------------------------------*/
 /* Main Function                         */
 /*-----------------------------------------------------------*/

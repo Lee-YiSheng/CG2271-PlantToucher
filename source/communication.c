@@ -1,52 +1,60 @@
 /*
  * communication.c
  *
- * Handles periodic communication with the ESP32 to fetch DHT11 data.
+ * Handles UART communication with the ESP32 using NXP SDK drivers
+ * and a two-task (send/receive) RTOS model inspired by the lab example.
  */
 
-#include "communication.h"
-#include "fsl_lpuart.h"     // MCUXpresso LPUART driver
-#include "fsl_port.h"       // For pin muxing
-#include "board.h"          // Board specific definitions
-#include "project_config.h" // For timings, priorities
-#include "rtos_manager.h"   // Access to queues/semaphores/mutex
-#include "sensor_driver.h"  // <-- FIX: Added to define SensorData_t and enums
-#include "fsl_debug_console.h" // For PRINTF
-#include <string.h>         // For strlen, strstr
-#include <stdlib.h>         // For atof
-#include "sensor_driver.h"
+#include "communication.h"    // Header with task prototypes and UARTMessage_t
+#include "fsl_lpuart.h"       // MCUXpresso LPUART driver
+#include "fsl_port.h"         // For pin muxing
+#include "board.h"
+#include "project_config.h"   // For timings, priorities
+#include "rtos_manager.h"     // Access to queues/semaphores/mutex
+#include "sensor_driver.h"    // For SensorData_t struct and enums
+#include "fsl_debug_console.h"// For PRINTF
+#include <string.h>           // For strlen, strstr, strncpy
+#include <stdlib.h>           // For atof
 
 // --- Module Variables ---
-#define RX_BUFFER_SIZE 64           // Size of the buffer to hold incoming UART data
-static char rx_buffer[RX_BUFFER_SIZE]; // Static buffer for ISR
-static volatile uint8_t rx_index = 0;   // Index for the rx_buffer
-static SemaphoreHandle_t xUARTRxSemaphore = NULL; // Signals task when a full line is received
+// This must match UART_RX_BUFFER_SIZE in communication.h
+#define RX_BUFFER_SIZE 64
 
-// Global handles (defined elsewhere, e.g., main.c)
-extern QueueHandle_t xSensorQueue;
-extern SemaphoreHandle_t xUARTMutex;
+// --- Global RTOS Handles (defined in main.c) ---
+extern QueueHandle_t xSensorQueue;       // The main queue for all sensor data
+extern QueueHandle_t xUARTMutex;         // Mutex to protect LPUART_WriteBlocking
+extern QueueHandle_t xUARTRxQueue;       // Queue for ISR to send strings to Recv_Task
 
 // --- UART1 Interrupt Service Routine ---
-void LPUART1_IRQHandler(void) { // <-- FIX: Renamed from UART1_IRQHandler
+// This ISR is triggered when a byte is received on LPUART1.
+// It collects bytes until a newline ('\n') is found and sends the
+// complete string to the xUARTRxQueue.
+void LPUART1_IRQHandler(void) {
+    // Static buffer and index, just like the lab example
+    static char rx_buffer[RX_BUFFER_SIZE];
+    static volatile uint8_t rx_index = 0;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     char received_char;
 
     // Check if the RX data register is full
-    if ((kLPUART_RxDataRegFullFlag) & LPUART_GetStatusFlags(LPUART1)) { // <-- FIX: LPUART1
-        received_char = LPUART_ReadByte(LPUART1); // <-- FIX: LPUART1
+    if ((kLPUART_RxDataRegFullFlag) & LPUART_GetStatusFlags(LPUART1)) {
+        received_char = LPUART_ReadByte(LPUART1);
 
         // Store character if it's not newline and buffer isn't full
         if ((received_char != '\n') && (received_char != '\r') && (rx_index < RX_BUFFER_SIZE - 1)) {
             rx_buffer[rx_index++] = received_char;
-        } else {
-            // End of line/message detected or buffer full
+        } else if (rx_index > 0) { // Check if we have received at least one char
+            // End of line/message detected
             rx_buffer[rx_index] = '\0'; // Null-terminate the string
-            rx_index = 0;               // Reset buffer index for next message
 
-            if (xUARTRxSemaphore != NULL) {
-                 xSemaphoreGiveFromISR(xUARTRxSemaphore, &xHigherPriorityTaskWoken);
-            }
+            // Create message struct and send it to the queue
+            UARTMessage_t msg;
+            strncpy(msg.buffer, rx_buffer, RX_BUFFER_SIZE);
+            xQueueSendFromISR(xUARTRxQueue, &msg, &xHigherPriorityTaskWoken);
+
+            rx_index = 0; // Reset buffer index for next message
         }
+        // else: ignore empty newlines
     }
 
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -57,11 +65,11 @@ void LPUART1_IRQHandler(void) { // <-- FIX: Renamed from UART1_IRQHandler
 void UART_Init(void) {
     lpuart_config_t config;
 
-    // 1. Configure UART1 Pins
-    // The framework doc says PTB17 (TX) and PTB16 (RX)
+    // 1. Configure UART1 Pins (PTB17 for TX, PTB16 for RX)
+    // As per the "Smart Plant Monitoring System Framework" doc [cite: 74-75]
     CLOCK_EnableClock(kCLOCK_PortB);
-    PORT_SetPinMux(PORTB, 17U, kPORT_MuxAlt3); // UART1_TX
-    PORT_SetPinMux(PORTB, 16U, kPORT_MuxAlt3); // UART1_RX
+    PORT_SetPinMux(PORTB, 17U, kPORT_MuxAlt3); // LPUART1_TX
+    PORT_SetPinMux(PORTB, 16U, kPORT_MuxAlt3); // LPUART1_RX
 
     // 2. Get default configuration: 115200 baud, 8N1
     LPUART_GetDefaultConfig(&config);
@@ -70,41 +78,41 @@ void UART_Init(void) {
     config.enableRx     = true;
 
     // 3. Initialize LPUART instance
-    LPUART_Init(LPUART1, &config, CLOCK_GetFreq(kCLOCK_CoreSysClk)); // <-- FIX: LPUART1
+    LPUART_Init(LPUART1, &config, CLOCK_GetFreq(kCLOCK_CoreSysClk));
 
-    // 4. Create the semaphore used by the ISR
-    xUARTRxSemaphore = xSemaphoreCreateBinary();
-    if (xUARTRxSemaphore == NULL) {
-        PRINTF("Error creating UART Rx Semaphore!\r\n");
-        while(1);
-    }
-     vQueueAddToRegistry(xUARTRxSemaphore, "UARTRxSema");
+    // 4. Enable LPUART1 receive interrupt in the peripheral
+    LPUART_EnableInterrupts(LPUART1, kLPUART_RxDataRegFullInterruptEnable);
 
-    // 5. Enable UART1 receive interrupt in the peripheral
-    LPUART_EnableInterrupts(LPUART1, kLPUART_RxDataRegFullInterruptEnable); // <-- FIX: LPUART1
+    // 5. Enable LPUART1 interrupt in the NVIC
+    // Priority must be numerically higher (lower logical priority)
+    // than configMAX_SYSCALL_INTERRUPT_PRIORITY
+    NVIC_SetPriority(LPUART1_IRQn, 3);
+    EnableIRQ(LPUART1_IRQn);
 
-    // 6. Enable UART1 interrupt in the NVIC
-    NVIC_SetPriority(LPUART1_IRQn, 3); // <-- FIX: LPUART1_IRQn
-    EnableIRQ(LPUART1_IRQn);           // <-- FIX: LPUART1_IRQn
-
-    PRINTF("UART1 (LPUART1) Initialized for ESP32 Communication.\r\n");
+    PRINTF("LPUART1 Initialized for ESP32 Communication.\r\n");
 }
 
-// --- Send Command Helper ---
-BaseType_t Send_Command_To_ESP32(const char *command) {
+// --- Send Command Helper (Thread-Safe) ---
+// This function blocks, but it is thread-safe thanks to the mutex.
+static BaseType_t Send_Command_To_ESP32(const char *command) {
     if (xSemaphoreTake(xUARTMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        LPUART_WriteBlocking(LPUART1, (const uint8_t *)command, strlen(command)); // <-- FIX: LPUART1
-        LPUART_WriteBlocking(LPUART1, (const uint8_t *)"\n", 1);                  // <-- FIX: LPUART1
+        // Send the command string
+        LPUART_WriteBlocking(LPUART1, (const uint8_t *)command, strlen(command));
+        // Send a newline character as a command terminator
+        // The lab example shows the ESP32 expects a newline.
+        LPUART_WriteBlocking(LPUART1, (const uint8_t *)"\n", 1);
+
         xSemaphoreGive(xUARTMutex);
-        return pdTRUE;
+        return pdTRUE; // Success
     } else {
         PRINTF("Error: Could not acquire UART mutex to send command.\r\n");
-        return pdFALSE;
+        return pdFALSE; // Failed to acquire mutex
     }
 }
 
 // --- JSON Parsing Helper ---
-BaseType_t Parse_DHT_Data(const char *json_string, float *temp, float *humidity) {
+// Basic parser, assumes simple structure: {"temp":xx.x,"humidity":yy.y}
+static BaseType_t Parse_DHT_Data(const char *json_string, float *temp, float *humidity) {
     const char *temp_key = "\"temp\":";
     const char *hum_key = "\"humidity\":";
     char *temp_start = strstr(json_string, temp_key);
@@ -117,69 +125,64 @@ BaseType_t Parse_DHT_Data(const char *json_string, float *temp, float *humidity)
         *temp = atof(temp_start);
         *humidity = atof(hum_start);
 
+        // Basic validation
         if (*temp >= -40.0 && *temp <= 80.0 && *humidity >= 0.0 && *humidity <= 100.0) {
-            return pdTRUE;
+            return pdTRUE; // Success
         } else {
              PRINTF("Warning: Parsed DHT values out of range (T:%.1f, H:%.1f)\r\n", *temp, *humidity);
              return pdFALSE;
         }
     }
     PRINTF("Error: Could not find 'temp' or 'humidity' keys in JSON: %s\r\n", json_string);
-    return pdFALSE;
+    return pdFALSE; // Keys not found
 }
 
 
-// --- ESP32 Communication Task ---
-void ESP32_Communication_Task(void *pvParameters) {
-    // Create a local instance of the NEW struct
-    SensorData_t dht_data;
-
-    // Set the source *once*
-    dht_data.source = SENSOR_DHT11;
-
-    // Initialize other fields to a known "invalid" state
-    dht_data.water_level = 0;
-    dht_data.light_intensity = 0;
-
+// --- Task: Periodically Send Request to ESP32 ---
+void ESP32_Send_Task(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    PRINTF("ESP32 Communication Task Started.\r\n");
+    PRINTF("ESP32 Send Task Started.\r\n");
 
     for (;;) {
+        // Use vTaskDelayUntil for precise periodic execution
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DHT11_POLL_INTERVAL_MS));
 
-        if (Send_Command_To_ESP32("GET_DHT") == pdTRUE) {
-            if (xSemaphoreTake(xUARTRxSemaphore, pdMS_TO_TICKS(UART_RX_TIMEOUT_MS)) == pdTRUE) {
-                if (xSemaphoreTake(xUARTMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        if (Send_Command_To_ESP32("GET_DHT") == pdFALSE) {
+             PRINTF("Send_Task: Failed to send GET_DHT (Mutex busy?).\r\n");
+        }
+    }
+}
 
-                    char local_rx_buffer[RX_BUFFER_SIZE];
-                    strncpy(local_rx_buffer, rx_buffer, RX_BUFFER_SIZE - 1);
-                    local_rx_buffer[RX_BUFFER_SIZE - 1] = '\0';
-                    xSemaphoreGive(xUARTMutex);
+// --- Task: Receive and Parse Data from ESP32 ---
+void ESP32_Receive_Task(void *pvParameters) {
+    UARTMessage_t received_msg;
+    SensorData_t dht_data;
 
-                    // --- FIX: Use .temperature and .humidity, NOT .value1/.value2 ---
-                    if (Parse_DHT_Data(local_rx_buffer, &dht_data.temperature, &dht_data.humidity) == pdTRUE) {
+    // This task is only responsible for DHT11 data.
+    dht_data.source = SENSOR_DHT11;
+    dht_data.light_intensity = 0; // Not used
+    dht_data.water_level = 0;     // Not used
 
-                        // Send the struct (now with source=DHT11) to the logic task
-                        if (xQueueSend(xSensorQueue, &dht_data, pdMS_TO_TICKS(100)) != pdPASS) {
-                            PRINTF("Error: Failed to send DHT data to Sensor Queue.\r\n");
-                        } else {
-                             PRINTF("DHT Data Sent: T=%.1f H=%.1f\r\n", dht_data.temperature, dht_data.humidity);
-                        }
-                    } else {
-                        PRINTF("Error: Failed to parse ESP32 response: %s\r\n", local_rx_buffer);
-                    }
+    PRINTF("ESP32 Receive Task Started.\r\n");
+
+    for (;;) {
+        // Block indefinitely waiting for a message from the ISR queue
+        if (xQueueReceive(xUARTRxQueue, &received_msg, portMAX_DELAY) == pdPASS) {
+
+            // PRINTF("ESP32_Recv_Task: Got string: %s\r\n", received_msg.buffer);
+
+            // 1. Parse the received data
+            if (Parse_DHT_Data(received_msg.buffer, &dht_data.temperature, &dht_data.humidity) == pdTRUE) {
+                // 2. Send the valid data to the main Sensor Queue
+                if (xQueueSend(xSensorQueue, &dht_data, pdMS_TO_TICKS(100)) != pdPASS) {
+                    PRINTF("ESP32_Recv_Task: Failed to send DHT data to Sensor Queue.\r\n");
                 } else {
-                    PRINTF("Error: Could not acquire UART mutex to read buffer.\r\n");
+                     PRINTF("DHT Data Sent: T=%.1f H=%.1f\r\n", dht_data.temperature, dht_data.humidity);
                 }
             } else {
-                PRINTF("Timeout: No response from ESP32 for GET_DHT command.\r\n");
-
-                dht_data.temperature = -99.9; // Indicate error
-                dht_data.humidity = -99.9;
-                xQueueSend(xSensorQueue, &dht_data, 0); // Send error status
+                // Parsing failed
+                PRINTF("ESP32_Recv_Task: Failed to parse ESP32 response: %s\r\n", received_msg.buffer);
             }
-        } else {
-             PRINTF("Failed to send GET_DHT command (Mutex busy?).\r\n");
         }
     }
 }
